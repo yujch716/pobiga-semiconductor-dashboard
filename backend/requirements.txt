@@ -1,0 +1,8 @@
+flask
+flask-sqlalchemy
+flask-cors
+pandas
+
+# /api/predict/* (lightgbm, scikit-learn, joblib)는 모델 피클 호환성 때문에
+# 이 venv가 아닌 anaconda `bigdata` 환경(Python 3.10, scikit-learn 1.2.x)에서
+# 실행해야 합니다. 자세한 내용은 README.md 참고.
