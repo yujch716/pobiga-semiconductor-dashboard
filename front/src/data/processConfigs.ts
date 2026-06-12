@@ -112,7 +112,7 @@ function withGeneratedOptions(process: RawProcessConfig): ProcessConfig {
 
       return {
         ...field,
-        defaultValue: values[0],
+        defaultValue: field.defaultValue ?? values[0],
         options,
       }
     }),
@@ -161,7 +161,7 @@ const rawProcessConfigs: RawProcessConfig[] = [
     value: "photo-softbake",
     label: "포토 (Photo-Softbake)",
     fields: [
-      { key: "timeSoftbake", label: "소프트베이크 시간 (Time Softbake)", unit: "sec" },
+      { key: "timeSoftbake", label: "소프트베이크 시간 (Time Softbake)", unit: "sec", defaultValue: "30.2" },
       { key: "timeHmdsBake", label: "HMDS 베이크 시간 (Time HMDS bake)", unit: "sec" },
       { key: "tempHmds", label: "HMDS 처리 온도 (Temp HMDS)", unit: "°C" },
       { key: "spin3", label: "3차 스핀 코팅 속도 (Spin3)", unit: "rpm" },
@@ -278,7 +278,7 @@ const rawProcessConfigs: RawProcessConfig[] = [
       { key: "flux90s", label: "90초 시점 가스 유량 (Flux90s)", unit: "ions/cm²" },
       { key: "flux60s", label: "60초 시점 가스 유량 (Flux60s)", unit: "ions/cm²" },
       { key: "flux480s", label: "480초 시점 가스 유량 (Flux480s)", unit: "ions/cm²" },
-      { key: "flux160s", label: "160초 시점 가스 유량 (Flux160s)", unit: "ions/cm²" },
+      { key: "flux160s", label: "160초 시점 가스 유량 (Flux160s)", unit: "ions/cmso²" },
     ],
     params: [
       { label: "이온 주입 공정 온도 (Temp implantation)", low: ["98.6350 ~ 102.2930", "104.7535 ~ 107.5470"], mid: ["98.6350 ~ 99.1770", "106.8920 ~ 107.5470"] },

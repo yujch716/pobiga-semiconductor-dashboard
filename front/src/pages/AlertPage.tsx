@@ -475,7 +475,7 @@ const AlertPage = () => {
                   <div key={step.value} className="flex items-center gap-1">
                     <div
                       className={cn(
-                        "flex min-w-[116px] flex-col items-center gap-1 rounded-md border px-3.5 py-2.5 text-xs font-medium shadow-sm",
+                        "flex min-w-[124px] flex-col items-center gap-1 rounded-md border px-4 py-3 text-xs font-medium shadow-sm",
                         styles.card,
                         isSelected && "ring-2 ring-primary ring-offset-2"
                       )}
