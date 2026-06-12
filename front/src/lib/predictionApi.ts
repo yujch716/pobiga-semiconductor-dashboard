@@ -24,6 +24,8 @@ const FEATURE_MAP: Record<string, Record<string, string>> = {
     pressure: "Pressure",
     ppm: "ppm",
     oxidTime: "Oxid_time",
+    type: "type",
+    thickness: "thickness",
   },
   "photo-softbake": {
     timeSoftbake: "time_softbake",
@@ -35,9 +37,13 @@ const FEATURE_MAP: Record<string, Record<string, string>> = {
     pressureHmds: "pressure_HMDS",
     photoresistBake: "photoresist_bake",
     n2Hmds: "N2_HMDS",
+    resistTarget: "resist_target",
+    tempHmdsBake: "temp_HMDS_bake",
   },
   "photo-litho": {
     energyExposure: "Energy_Exposure",
+    resolution: "Resolution",
+    lineCd: "Line_CD",
   },
   etching: {
     thinF4: "Thin F4",
@@ -60,9 +66,9 @@ const FEATURE_MAP: Record<string, Record<string, string>> = {
 // 프론트 입력 폼에 없는 백엔드 필수 feature의 기본값
 // 학습 데이터(modeling_merged.csv) 중앙값 기준 기본값
 const EXTRA_DEFAULTS: Record<string, Record<string, FeatureValue>> = {
-  oxi: { type: "wet", thickness: 711.68 },
-  "photo-softbake": { photo_soft_Chamber: 2, resist_target: 1.124, temp_softbake: 92.046, temp_HMDS_bake: 200.556 },
-  "photo-litho": { Resolution: 513.702, Line_CD: 40.2105 },
+  oxi: {},
+  "photo-softbake": { photo_soft_Chamber: 2, temp_softbake: 92.046 },
+  "photo-litho": {},
   etching: { Temp_Etching: 71.208, Selectivity: 1.034 },
   ion: { Ion_Chamber: 2, Flux840s: 6e17, RTA_Temp: 155 },
 }

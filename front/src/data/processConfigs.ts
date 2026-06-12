@@ -47,7 +47,15 @@ function formatNumber(num: number): string {
   return Number(num.toPrecision(3)).toString()
 }
 
-// 추천 범위(저위험 기준) 안에서 4개, 범위를 벗어난 값 2개를 만들어 6개의 select 옵션을 생성한다.
+// 0이 많은 큰 수(예: 이온 공정의 가스 유량)는 지수 표기법(예: 2.97e+17)으로 표시한다.
+export function formatSciNumber(value: string): string {
+  const num = Number(value)
+  if (Number.isNaN(num)) return value
+  return Math.abs(num) >= 1e6 ? num.toExponential(2) : value
+}
+
+// 추천 범위(저위험 기준) 안에서 4개, 두 저위험 구간 "사이"(boxplot의 box, 즉 불량이
+// 몰려있는 구간)에서 고위험을 유발할 가능성이 높은 값 4개를 만들어 select 옵션을 생성한다.
 function generateNumericOptionValues(ranges: string[]): string[] {
   const parsed = ranges.map(parseRange)
   const inRange: number[] = []
@@ -57,17 +65,28 @@ function generateNumericOptionValues(ranges: string[]): string[] {
       inRange.push(min + (max - min) * 0.3)
       inRange.push(min + (max - min) * 0.7)
     })
-  } else {
-    const [min, max] = parsed[0]
-    ;[0.15, 0.4, 0.6, 0.85].forEach((ratio) => inRange.push(min + (max - min) * ratio))
+
+    const sorted = [...parsed].sort((a, b) => a[0] - b[0])
+    const gapMin = sorted[0][1]
+    const gapMax = sorted[1][0]
+    const gapSpan = gapMax - gapMin
+    const highRisk = [0.1, 0.35, 0.65, 0.9].map((ratio) => gapMin + gapSpan * ratio)
+
+    return [...new Set([...inRange, ...highRisk].map(formatNumber))]
   }
 
-  const globalMin = Math.min(...parsed.map(([min]) => min))
-  const globalMax = Math.max(...parsed.map(([, max]) => max))
-  const span = globalMax - globalMin
-  const outOfRange = [globalMin - span * 0.2, globalMax + span * 0.2]
+  const [min, max] = parsed[0]
+  const span = max - min
+  const fallback = [
+    min + span * 0.15,
+    min + span * 0.4,
+    min + span * 0.6,
+    min + span * 0.85,
+    min - span * 1.5,
+    max + span * 1.5,
+  ]
 
-  return [...inRange, ...outOfRange].map(formatNumber)
+  return [...new Set(fallback.map(formatNumber))]
 }
 
 function withGeneratedOptions(process: RawProcessConfig): ProcessConfig {
@@ -87,7 +106,7 @@ function withGeneratedOptions(process: RawProcessConfig): ProcessConfig {
       const options: FieldOption[] = values
         .map((value) => ({
           value,
-          label: field.unit ? `${value} ${field.unit}` : value,
+          label: field.unit ? `${formatSciNumber(value)} ${field.unit}` : formatSciNumber(value),
         }))
         .sort((a, b) => Number(a.value) - Number(b.value))
 
@@ -109,6 +128,27 @@ const rawProcessConfigs: RawProcessConfig[] = [
       { key: "pressure", label: "공정 압력 (Pressure)", unit: "Torr" },
       { key: "ppm", label: "가스 농도 (ppm)", unit: "ppm" },
       { key: "oxidTime", label: "산화 공정 시간 (Oxid time)", unit: "min" },
+      {
+        key: "type",
+        label: "산화 방식 (Type)",
+        defaultValue: "wet",
+        options: [
+          { value: "wet", label: "wet" },
+          { value: "dry", label: "dry" },
+        ],
+      },
+      {
+        key: "thickness",
+        label: "박막 두께 (Thickness)",
+        unit: "Å",
+        defaultValue: "711.68",
+        options: [
+          { value: "711.68", label: "711.68 Å" },
+          { value: "500", label: "500 Å" },
+          { value: "1000", label: "1000 Å" },
+          { value: "1500", label: "1500 Å" },
+        ],
+      },
     ],
     params: [
       { label: "산화 온도 (Temp Oxid)", low: ["861.7900 ~ 883.8550", "1186.3200 ~ 1311.3200"], mid: ["861.7900 ~ 870.3600"] },
@@ -130,6 +170,30 @@ const rawProcessConfigs: RawProcessConfig[] = [
       { key: "pressureHmds", label: "HMDS 공정 압력 (Pressure HMDS)", unit: "Torr" },
       { key: "photoresistBake", label: "포토레지스트 베이크 온도 (Photoresist bake)", unit: "°C" },
       { key: "n2Hmds", label: "HMDS 공정 질소 유량 (N2 HMDS)", unit: "sccm" },
+      {
+        key: "resistTarget",
+        label: "레지스트 타겟 두께 (Resist target)",
+        unit: "μm",
+        defaultValue: "1.124",
+        options: [
+          { value: "1.124", label: "1.124 μm" },
+          { value: "0.5", label: "0.5 μm" },
+          { value: "5", label: "5 μm" },
+          { value: "10", label: "10 μm" },
+        ],
+      },
+      {
+        key: "tempHmdsBake",
+        label: "HMDS 베이크 온도 (Temp HMDS bake)",
+        unit: "°C",
+        defaultValue: "200.556",
+        options: [
+          { value: "200.556", label: "200.556 °C" },
+          { value: "100", label: "100 °C" },
+          { value: "0", label: "0 °C" },
+          { value: "300", label: "300 °C" },
+        ],
+      },
     ],
     params: [
       { label: "소프트베이크 시간 (Time Softbake)", low: ["29.7290 ~ 29.9310", "30.0670 ~ 30.2700"], mid: ["29.7290 ~ 29.7320", "30.2680 ~ 30.2700"] },
@@ -154,6 +218,30 @@ const rawProcessConfigs: RawProcessConfig[] = [
         options: [
           { value: "g line", label: "g line" },
           { value: "i line", label: "i line" },
+        ],
+      },
+      {
+        key: "resolution",
+        label: "해상도 (Resolution)",
+        unit: "nm",
+        defaultValue: "513.702",
+        options: [
+          { value: "513.702", label: "513.702 nm" },
+          { value: "450", label: "450 nm" },
+          { value: "500", label: "500 nm" },
+          { value: "600", label: "600 nm" },
+        ],
+      },
+      {
+        key: "lineCd",
+        label: "라인 CD (Line CD)",
+        unit: "nm",
+        defaultValue: "40.2105",
+        options: [
+          { value: "40.2105", label: "40.2105 nm" },
+          { value: "20", label: "20 nm" },
+          { value: "10", label: "10 nm" },
+          { value: "60", label: "60 nm" },
         ],
       },
     ],

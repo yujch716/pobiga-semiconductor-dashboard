@@ -37,11 +37,20 @@ export default function AppLayout() {
 
   useEffect(() => {
     let cancelled = false
-    fetchUnreadCount().then((count) => {
-      if (!cancelled) setUnreadCount(count)
-    })
+    const refresh = () => {
+      fetchUnreadCount().then((count) => {
+        if (!cancelled) setUnreadCount(count)
+      })
+    }
+
+    refresh()
+    const interval = setInterval(refresh, 5000)
+    window.addEventListener("inspection-logged", refresh)
+
     return () => {
       cancelled = true
+      clearInterval(interval)
+      window.removeEventListener("inspection-logged", refresh)
     }
   }, [pathname])
 

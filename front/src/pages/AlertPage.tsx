@@ -19,6 +19,7 @@ import {
 import {cn} from "@/lib/utils";
 import {
   type FieldConfig,
+  formatSciNumber,
   getRecommendedRanges,
   isWithinRanges,
   processConfigs,
@@ -49,7 +50,7 @@ const riskLevelMeta: Record<RiskLevel, {
     titleClass: "text-green-700",
     descClass: "text-green-600",
     icon: CheckCircle2,
-    title: "정상",
+    title: "정상 (저위험)",
     description: "입력된 값이 정상 범위 내에 있습니다. 아래 추천 범위를 참고하세요.",
   },
   low: {
@@ -128,14 +129,21 @@ const processStateStyles = {
     icon: "bg-blue-100 text-blue-600",
     label: "text-blue-900",
     message: "text-blue-600",
-    text: "정상",
+    text: "저위험",
   },
-  alert: {
+  mid: {
+    card: "border-amber-200 bg-amber-50",
+    icon: "bg-amber-100 text-amber-600",
+    label: "text-amber-900",
+    message: "text-amber-600",
+    text: "중위험",
+  },
+  high: {
     card: "border-red-200 bg-red-50",
     icon: "bg-red-100 text-red-600",
     label: "text-red-900",
     message: "text-red-600",
-    text: "문제 발생",
+    text: "고위험",
   },
 } as const
 
@@ -164,8 +172,12 @@ type LotWaferStackProps = {
 }
 
 // 추천 범위 문자열에 포함된 소수점 숫자를 소수점 첫째 자리까지 반올림해 표시한다.
+// 0이 많은 큰 수(예: 이온 공정의 가스 유량)는 지수 표기법(예: 2.97e+17)으로 표시한다.
 const formatRange = (range: string): string =>
-  range.replace(/-?\d+\.\d+/g, (num) => Number(num).toFixed(1))
+  range.replace(/-?\d+\.\d+/g, (num) => {
+    const n = Number(num)
+    return Math.abs(n) >= 1e6 ? n.toExponential(2) : n.toFixed(1)
+  })
 
 // 로트(사각형 박스) 안에 웨이퍼 2장씩 묶어 얇은 막대로 세로로 쌓아 표현하는 시각화
 const LotWaferStack = ({ lotNum, totalLots, waferNum, totalWafers, discardedWafers }: LotWaferStackProps) => {
@@ -207,6 +219,7 @@ const AlertPage = () => {
   const [waferNum, setWaferNum] = useState(1)
   const [discardedWafers, setDiscardedWafers] = useState<Set<number>>(new Set())
   const [reworkCounts, setReworkCounts] = useState<Record<string, number>>({})
+  const [passedCounts, setPassedCounts] = useState<Record<string, number>>({})
   const [pendingRiskLevel, setPendingRiskLevel] = useState<RiskLevel | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -216,10 +229,22 @@ const AlertPage = () => {
   const meta = currentResult ? riskLevelMeta[effectiveRiskLevel] : pendingMeta
   const StatusIcon = meta.icon
 
+  // 추천 범위는 현재 공정 결과가 아니라, 직전 공정의 위험 수준에 따라 결정한다.
+  // 직전 공정이 저위험이면 다음 공정엔 넓은(low) 범위를, 중위험이면 좁은(mid) 범위를 추천한다.
+  // 직전 공정이 없거나(첫 공정) 결과가 없으면 저위험 기준(넓은 범위)을 기본값으로 한다.
+  const previousProcessResult = currentIndex > 0 ? results[processConfigs[currentIndex - 1].value] : undefined
+  const previousRiskLevel: RiskLevel =
+    previousProcessResult?.riskLevel === "mid" || previousProcessResult?.riskLevel === "high"
+      ? "mid"
+      : "normal"
+
   const isLastProcess = currentIndex === processConfigs.length - 1
   const isReworkable = REWORKABLE_PROCESSES.includes(currentProcess.value)
   const reworkCount = reworkCounts[currentProcess.value] ?? 0
-  const checkDisabled = isLoading || dialogOpen || effectiveRiskLevel === "high"
+  const totalReworkCount = Object.values(reworkCounts).reduce((sum, count) => sum + count, 0)
+  const totalPassedCount = Object.values(passedCounts).reduce((sum, count) => sum + count, 0)
+  const totalCompletedCount = discardedWafers.size + totalReworkCount + totalPassedCount
+  const checkDisabled = isLoading || dialogOpen || !!currentResult
   const discardDisabled = effectiveRiskLevel !== "high" || isLoading || dialogOpen
 
   const getFieldValue = (field: FieldConfig) =>
@@ -253,12 +278,8 @@ const AlertPage = () => {
       const payload = buildPredictionPayload(currentProcess, getFieldValue)
       const result = await predictProcess(currentProcess.value, payload)
       setResults((prev) => ({ ...prev, [currentProcess.value]: result }))
-
-      if (result.riskLevel !== "high") {
-        setPendingRiskLevel(result.riskLevel)
-        setDialogOpen(true)
-      }
-      // 고위험인 경우 폐기/재작업 버튼을 눌러야 다음 웨이퍼로 진행한다.
+      // 정상/저위험/중위험: '다음 공정 이동' 버튼을 눌러야 모달이 뜬다.
+      // 고위험: 폐기/재작업 버튼을 눌러야 다음 웨이퍼로 진행한다.
     } catch (error) {
       setErrorMessage(
         error instanceof PredictionApiError
@@ -270,8 +291,51 @@ const AlertPage = () => {
     }
   }
 
+  // '다음 공정 이동' 버튼: 동일 로트 적용 여부를 묻는 모달을 띄운다.
+  const handleGoToNextProcess = () => {
+    if (!currentResult || currentResult.riskLevel === "high") return
+    setPendingRiskLevel(currentResult.riskLevel)
+    setDialogOpen(true)
+  }
+
+  const addPassedCount = (count: number) => {
+    setPassedCounts((prev) => ({
+      ...prev,
+      [currentProcess.value]: (prev[currentProcess.value] ?? 0) + count,
+    }))
+  }
+
+  // '다음 웨이퍼 확인' 버튼: 모달 없이 같은 공정의 다음 웨이퍼로 바로 이동한다.
+  const handleNextWafer = async () => {
+    if (!currentResult || currentResult.riskLevel === "high") return
+    addPassedCount(1)
+
+    if (currentResult.riskLevel === "mid") {
+      await logInspection({
+        lotNum,
+        waferNum,
+        waferCount: 1,
+        appliedToAll: false,
+        process: currentProcess.value,
+        processLabel: currentProcess.label,
+        riskLevel: "mid",
+        badProbPercent: currentResult.badProbPercent,
+      })
+      window.dispatchEvent(new Event("inspection-logged"))
+    }
+
+    const next = findNextActiveWafer(waferNum, discardedWafers)
+    if (next === null) {
+      advanceToNextProcess(discardedWafers)
+    } else {
+      setWaferNum(next)
+      clearCurrentResult()
+    }
+  }
+
   // 정상/중위험: '예' -> 같은 로트의 나머지 웨이퍼 전체 적용 후 다음 공정으로 이동
   const handleApplyToAllWafers = async () => {
+    addPassedCount(TOTAL_WAFERS - waferNum + 1)
     if (pendingRiskLevel === "mid" && currentResult) {
       await logInspection({
         lotNum,
@@ -283,6 +347,7 @@ const AlertPage = () => {
         riskLevel: "mid",
         badProbPercent: currentResult.badProbPercent,
       })
+      window.dispatchEvent(new Event("inspection-logged"))
     }
     setDialogOpen(false)
     setPendingRiskLevel(null)
@@ -291,6 +356,7 @@ const AlertPage = () => {
 
   // 정상/중위험: '아니오' -> 다음 웨이퍼의 이상 여부를 다시 확인
   const handleCheckNextWaferOnly = async () => {
+    addPassedCount(1)
     if (pendingRiskLevel === "mid" && currentResult) {
       await logInspection({
         lotNum,
@@ -302,6 +368,7 @@ const AlertPage = () => {
         riskLevel: "mid",
         badProbPercent: currentResult.badProbPercent,
       })
+      window.dispatchEvent(new Event("inspection-logged"))
     }
     setDialogOpen(false)
     setPendingRiskLevel(null)
@@ -330,6 +397,7 @@ const AlertPage = () => {
       badProbPercent: currentResult.badProbPercent,
       resultType: isReworkable ? "rework" : "discard",
     })
+    window.dispatchEvent(new Event("inspection-logged"))
 
     let updatedDiscarded = discardedWafers
     if (isReworkable) {
@@ -361,6 +429,7 @@ const AlertPage = () => {
     setWaferNum(1)
     setDiscardedWafers(new Set())
     setReworkCounts({})
+    setPassedCounts({})
     setPendingRiskLevel(null)
     setDialogOpen(false)
   }
@@ -369,11 +438,12 @@ const AlertPage = () => {
     if (value === "eds") return allCompleted ? "normal" : "idle"
     const result = results[value]
     if (!result) return "idle"
-    return result.isNormal ? "normal" : "alert"
+    return result.riskLevel === "high" ? "high" : result.riskLevel === "mid" ? "mid" : "normal"
   }
 
-  const getStepText = (value: string, state: keyof typeof processStateStyles) => {
+  const getStepText = (value: string, state: keyof typeof processStateStyles, isSelected: boolean) => {
     if (value === "eds" && allCompleted) return "검사 완료"
+    if (state === "idle" && isSelected) return "가동중"
     return processStateStyles[state].text
   }
 
@@ -395,7 +465,7 @@ const AlertPage = () => {
             <CardTitle className="text-base">공정 흐름</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex flex-wrap items-center justify-center gap-1">
               {processSteps.map((step, i) => {
                 const Icon = step.icon
                 const state = getStepState(step.value)
@@ -405,18 +475,25 @@ const AlertPage = () => {
                   <div key={step.value} className="flex items-center gap-1">
                     <div
                       className={cn(
-                        "flex min-w-[104px] flex-col items-center gap-1 rounded-md border px-3 py-2 text-xs font-medium shadow-sm",
+                        "flex min-w-[116px] flex-col items-center gap-1 rounded-md border px-3.5 py-2.5 text-xs font-medium shadow-sm",
                         styles.card,
                         isSelected && "ring-2 ring-primary ring-offset-2"
                       )}
                     >
-                      <span className={cn("flex h-6 w-6 items-center justify-center rounded-full", styles.icon)}>
-                        <Icon className="h-3.5 w-3.5" />
+                      <span className={cn("flex h-7 w-7 items-center justify-center rounded-full", styles.icon)}>
+                        <Icon className="h-4 w-4" />
                       </span>
                       <span className={styles.label}>{processStepLabels[step.value]}</span>
                       <span className={cn("flex items-center gap-1 text-[10px] font-normal", styles.message)}>
-                        {state === "idle" && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
-                        {getStepText(step.value, state)}
+                        {state === "idle" && isSelected && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                        {getStepText(step.value, state, isSelected)}
+                        {state === "idle" && !isSelected && (
+                          <span className="flex">
+                            <span className="animate-bounce [animation-delay:-0.3s]">.</span>
+                            <span className="animate-bounce [animation-delay:-0.15s]">.</span>
+                            <span className="animate-bounce">.</span>
+                          </span>
+                        )}
                       </span>
                     </div>
                     {i < processSteps.length - 1 && (
@@ -443,6 +520,17 @@ const AlertPage = () => {
                 <p className="text-[11px] text-muted-foreground">현재 공정 ({currentIndex + 1}/{processConfigs.length})</p>
                 <p className="text-sm font-semibold">{currentProcess.label}</p>
               </div>
+              <div className="flex gap-1.5">
+                <Badge variant="outline" className="border-border bg-muted text-[11px] font-normal text-muted-foreground">
+                  완료 {totalCompletedCount}장
+                </Badge>
+                <Badge variant="outline" className="border-red-200 bg-red-50 text-[11px] font-normal text-red-700">
+                  폐기 {discardedWafers.size}장
+                </Badge>
+                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[11px] font-normal text-amber-700">
+                  재작업 {totalReworkCount}장
+                </Badge>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -465,7 +553,7 @@ const AlertPage = () => {
               ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button className="flex-1" onClick={handleCheck} disabled={checkDisabled}>
                 {isLoading ? (
                   <>
@@ -475,10 +563,21 @@ const AlertPage = () => {
                   "이상 여부 확인"
                 )}
               </Button>
-              <Button className="flex-1" variant="destructive" onClick={handleDiscardOrRework} disabled={discardDisabled}>
-                {isReworkable ? <Wrench className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
-                {isReworkable ? "재작업 등록" : "폐기 처리"}
-              </Button>
+              {effectiveRiskLevel === "high" ? (
+                <Button className="flex-1" variant="destructive" onClick={handleDiscardOrRework} disabled={discardDisabled}>
+                  {isReworkable ? <Wrench className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                  {isReworkable ? "재작업 등록" : "폐기 처리"}
+                </Button>
+              ) : (
+                <>
+                  <Button className="flex-1" variant="secondary" onClick={handleNextWafer} disabled={!currentResult || isLoading || dialogOpen}>
+                    <ArrowRight className="h-4 w-4" /> 다음 웨이퍼 확인
+                  </Button>
+                  <Button className="flex-1" variant="secondary" onClick={handleGoToNextProcess} disabled={!currentResult || isLoading || dialogOpen}>
+                    <ArrowRight className="h-4 w-4" /> 다음 공정 이동
+                  </Button>
+                </>
+              )}
             </div>
 
             {errorMessage && (
@@ -525,7 +624,9 @@ const AlertPage = () => {
                   {meta.title}
                   {currentResult ? ` (불량 확률 ${currentResult.badProbPercent}%)` : ""}
                 </p>
-                <p className={cn("text-xs", meta.descClass)}>{meta.description}</p>
+                {(!currentResult || effectiveRiskLevel !== "normal") && (
+                  <p className={cn("text-xs", meta.descClass)}>{meta.description}</p>
+                )}
               </div>
             </div>
 
@@ -557,7 +658,7 @@ const AlertPage = () => {
                 </TableHeader>
                 <TableBody>
                   {currentProcess.params.map((param, index) => {
-                    const ranges = getRecommendedRanges(param, effectiveRiskLevel)
+                    const ranges = getRecommendedRanges(param, previousRiskLevel)
                     const field = currentProcess.fields[index]
                     const currentValue = field ? getFieldValue(field) : undefined
                     const inRange = currentValue !== undefined ? isWithinRanges(currentValue, ranges) : null
@@ -566,7 +667,7 @@ const AlertPage = () => {
                       <TableRow key={param.label}>
                         <TableCell className="py-2 text-xs font-medium">{param.label}</TableCell>
                         <TableCell className="py-2 text-xs text-muted-foreground">
-                          {currentValue}
+                          {currentValue !== undefined ? formatSciNumber(currentValue) : currentValue}
                           {field?.unit ? ` ${field.unit}` : ""}
                         </TableCell>
                         <TableCell className="py-2 text-xs">
@@ -578,9 +679,9 @@ const AlertPage = () => {
                                   variant="outline"
                                   className={cn(
                                     "text-[10px] font-normal",
-                                    effectiveRiskLevel === "normal" || effectiveRiskLevel === "low"
-                                      ? "border-blue-300 bg-blue-50 text-blue-700"
-                                      : "border-amber-300 bg-amber-50 text-amber-700"
+                                    previousRiskLevel === "mid"
+                                      ? "border-amber-300 bg-amber-50 text-amber-700"
+                                      : "border-blue-300 bg-blue-50 text-blue-700"
                                   )}
                                 >
                                   {formatRange(range)}
@@ -620,11 +721,10 @@ const AlertPage = () => {
       <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>동일 로트에 동일하게 적용할까요?</AlertDialogTitle>
+            <AlertDialogTitle>이 판정 결과를 같은 로트에 적용할까요?</AlertDialogTitle>
             <AlertDialogDescription>
-              현재 웨이퍼({waferNum}번)의 판정 결과를 같은 로트({lotNum})의 나머지 웨이퍼({waferNum}~{TOTAL_WAFERS}번)에도
-              동일하게 적용하시겠습니까? '예'를 선택하면 다음 공정으로 이동합니다.
-              '아니오'를 선택하면 다음 웨이퍼의 이상 여부를 다시 확인합니다.
+              현재 웨이퍼({waferNum}번)의 판정 결과를 같은 로트({lotNum})의 나머지 웨이퍼({waferNum + 1}~{TOTAL_WAFERS}번)에도
+              동일하게 적용하시겠습니까?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

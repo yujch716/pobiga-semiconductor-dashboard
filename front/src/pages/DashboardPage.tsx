@@ -32,8 +32,8 @@ import {
 const kpiData = [
   {
     label: "전체 수율",
-    value: "96.4%",
-    description: "전월 대비 +0.8%p",
+    value: "81.56%",
+    description: "전월 대비 -0.8%p",
     icon: TrendingUp,
     valueClassName: "text-emerald-600",
     iconBoxClassName: "bg-emerald-100 text-emerald-600",
@@ -48,7 +48,7 @@ const kpiData = [
   },
   {
     label: "현재 불량률",
-    value: "3.6%",
+    value: "18.44%",
     description: "양품 대비 불량 비율",
     icon: AlertTriangle,
     valueClassName: "text-destructive",
@@ -65,8 +65,8 @@ const kpiData = [
 ]
 
 const goodVsDefectData = [
-  { name: "good", label: "양품", value: 1204, fill: "var(--color-good)" },
-  { name: "defect", label: "불량", value: 46, fill: "var(--color-defect)" },
+  { name: "good", label: "양품", value: 82, fill: "var(--color-good)" },
+  { name: "defect", label: "불량", value: 18, fill: "var(--color-defect)" },
 ]
 
 const goodVsDefectConfig = {
