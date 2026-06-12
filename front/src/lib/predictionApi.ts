@@ -1,7 +1,7 @@
 import type { FieldConfig, ProcessConfig, RiskLevel } from "@/data/processConfigs"
 
 // bigdata conda 환경에서 실행되는 Flask 예측 API 서버 (backend/README.md 참고)
-export const API_BASE_URL = "http://127.0.0.1:5000"
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:5000"
 
 export type PredictionResult = {
   riskLevel: RiskLevel
