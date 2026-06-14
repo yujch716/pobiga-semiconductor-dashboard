@@ -103,7 +103,8 @@ function withGeneratedOptions(process: RawProcessConfig): ProcessConfig {
 
       const param = process.params[index]
       const values = generateNumericOptionValues(param.low)
-      const options: FieldOption[] = values
+      const allValues = field.defaultValue ? [...new Set([...values, field.defaultValue])] : values
+      const options: FieldOption[] = allValues
         .map((value) => ({
           value,
           label: field.unit ? `${formatSciNumber(value)} ${field.unit}` : formatSciNumber(value),
